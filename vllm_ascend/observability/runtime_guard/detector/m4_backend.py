@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Load the optional CPU extension with explicit served-tokenizer validation."""
+
 from __future__ import annotations
 
 import hashlib
@@ -36,8 +37,15 @@ def load_m4(runner, tables: str, tokenizer_json: str, think_end: int):
     if not served_file.is_file():
         # Resolve only already-deployed HF files. Never fetch model data in a CPU job.
         from transformers.utils.hub import cached_file
-        served_file = Path(cached_file(served, "tokenizer.json", local_files_only=True,
-                                      revision=getattr(model_config, "tokenizer_revision", None)))
+
+        served_file = Path(
+            cached_file(
+                served,
+                "tokenizer.json",
+                local_files_only=True,
+                revision=getattr(model_config, "tokenizer_revision", None),
+            )
+        )
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     if hashlib.sha256(served_file.read_bytes()).hexdigest() != digest:
         raise ValueError("M4 tokenizer.json does not match the served tokenizer")

@@ -215,7 +215,8 @@ class TokenRepeatDetector(ConfigBackedDetector):
     def clear_finished(self, req_id: str, *, expected_state=None) -> None:
         with self._lock:
             if (
-                self._algorithm == "m4" and expected_state is not None
+                self._algorithm == "m4"
+                and expected_state is not None
                 and self._m4_owners.get(req_id) is not expected_state
             ):
                 return
@@ -246,7 +247,8 @@ class TokenRepeatDetector(ConfigBackedDetector):
                 return []
             if expected_states is not None:
                 req_ids = [
-                    rid for rid in req_ids
+                    rid
+                    for rid in req_ids
                     if expected_states.get(rid) is not None
                     and RequestGuardStore.get().get_state(rid) is expected_states[rid]
                 ]
@@ -316,8 +318,11 @@ class TokenRepeatDetector(ConfigBackedDetector):
     def _m4_incident(self, rid, idx, fired_at, reason, finish=False):
         self._alerted.add(rid)
         return Incident(
-            incident_type=self.incident_type, req_id=rid, req_idx=idx,
-            is_ill=True, ill_type=ILL_TYPE_REPEAT,
+            incident_type=self.incident_type,
+            req_id=rid,
+            req_idx=idx,
+            is_ill=True,
+            ill_type=ILL_TYPE_REPEAT,
             detail={"algorithm": "m4", "fired_at": fired_at, "reason": reason, "finish_only": finish},
         )
 
@@ -325,6 +330,7 @@ class TokenRepeatDetector(ConfigBackedDetector):
         if self._m4 is None:
             # Optional independent extension: never import/build it when window/off.
             from vllm_ascend.observability.runtime_guard.detector.m4_backend import load_m4
+
             self._m4 = load_m4(self._runner, *self._m4_options)
         keys, states, inputs, indices = [], [], [], []
         io = RequestIoSnapshotManager.get()
@@ -383,8 +389,7 @@ class TokenRepeatDetector(ConfigBackedDetector):
             return alerts
         for rid, ids in zip(keys, inputs):
             self._consumed_len[rid] = self._consumed_len.get(rid, 0) + len(ids)
-        return [self._m4_incident(keys[slot], indices[slot], fired_at, reason)
-                for slot, fired_at, reason in events]
+        return [self._m4_incident(keys[slot], indices[slot], fired_at, reason) for slot, fired_at, reason in events]
 
     def finish_requests(self, req_ids):
         """Drain unread output and flush tails BEFORE shared IO is removed.

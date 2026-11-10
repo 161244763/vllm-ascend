@@ -1,13 +1,7 @@
-.venv/
 __pycache__/
 *.pyc
 *.so
 *.pyd
 *.egg-info/
-build*/
+build/
 dist/
-native-evidence/
-soak-*/
-replay-*/
-.coverage*
-htmlcov/
