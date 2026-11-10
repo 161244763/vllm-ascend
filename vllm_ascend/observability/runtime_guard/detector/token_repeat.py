@@ -334,10 +334,14 @@ class TokenRepeatDetector(ConfigBackedDetector):
             owner = RequestGuardStore.get().get_state(rid)
             if rid in self._m4_owners and self._m4_owners[rid] is not owner:
                 self.clear_finished(rid)
+            # Skipped/empty requests also own cursors. Record their generation
+            # before any early exit so terminal cleanup cannot leave tombstones.
+            self._m4_owners[rid] = owner
             consumed = self._consumed_len.get(rid, 0)
             total, ids = io.cumulative_output_since(rid, consumed)
             if consumed > total:
                 self.clear_finished(rid)
+                self._m4_owners[rid] = owner
                 total, ids = io.cumulative_output_since(rid, 0)
             if rid in self._m4_failed:
                 # A partial native batch is never replayed.

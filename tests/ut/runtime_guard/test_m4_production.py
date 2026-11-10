@@ -233,6 +233,17 @@ class ProductionM4Tests(unittest.TestCase):
         self.assertIn('b', self.det._m4_failed)
 
 
+    def test_skipped_request_without_native_state_is_fully_cleaned(self):
+        store = RequestGuardStore.get()
+        RequestIoSnapshotManager.get().append_batch(['skipped'], [[1, 2]])
+        self.det.check_all(None, ['skipped'], {'skipped'})
+        self.assertNotIn('skipped', self.det._m4_states)
+        self.assertEqual(self.det._consumed_len['skipped'], 2)
+        store.clear('skipped', detectors=self.manager)
+        self.assertNotIn('skipped', self.det._consumed_len)
+        self.assertNotIn('skipped', self.det._m4_owners)
+
+
 class ReferenceM4Tests(unittest.TestCase):
     setUp = ProductionM4Tests.setUp
     sampled = ProductionM4Tests.sampled
