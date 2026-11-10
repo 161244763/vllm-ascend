@@ -394,13 +394,27 @@ class RuntimeGuardProcessor(RuntimeGuardBusMixin, RuntimeGuardDumpMixin, Runtime
     def _current_wave(self) -> int:
         return int(self.wave_tracker.current_wave())
 
+    _reap_lock = threading.RLock()
+
     def _reap_finished_requests(self) -> None:
+        with self._reap_lock:
+            self._reap_finished_requests_locked()
+
+    def _reap_finished_requests_locked(self) -> None:
         """Clear reqs that are finished and drained."""
         store = RequestGuardStore.get()
         wave = self._current_wave()
         reapable = store.list_reapable(current_wave=wave)
         if not reapable:
             return
+        # Flush M4's sub-64-token tail while IO/report context still exists.
+        # Forced reap may have outstanding jobs: Store identities invalidate
+        # late snapshots; never flush a state still being consumed.
+        drained = [rid for rid in reapable if store.get_state(rid) is not None and not store.get_state(rid).cpu_jobs]
+        for alert in self.detectors.finish_requests(drained):
+            self._handle_alert(alert, detector=self.detectors.get(alert.incident_type))
+        # Tail alerts may arm dump jobs, which now pin the request as usual.
+        reapable = [rid for rid in store.list_reapable(current_wave=wave) if rid in reapable]
         store.clear_many(reapable, detectors=self.detectors)
         self.wave_tracker.discard_many(reapable)
 
@@ -657,7 +671,7 @@ class RuntimeGuardProcessor(RuntimeGuardBusMixin, RuntimeGuardDumpMixin, Runtime
             except Exception:
                 logger.exception("[runtime_guard] after-sample CPU detect failed")
             finally:
-                RequestGuardStore.get().finish_cpu_jobs(req_ids_job)
+                RequestGuardStore.get().finish_cpu_jobs(req_ids_job, expected_states=snap.request_states)
                 self._reap_finished_requests()
 
         queue = self.action_executor.action_queue
@@ -668,7 +682,7 @@ class RuntimeGuardProcessor(RuntimeGuardBusMixin, RuntimeGuardDumpMixin, Runtime
                 "token_repeat may miss this step req_ids=%s",
                 req_ids_job,
             )
-            store.finish_cpu_jobs(req_ids_job)
+            store.finish_cpu_jobs(req_ids_job, expected_states=snap.request_states)
 
 
 # ---- sampling meta debug ----

@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-FieldKind = Literal["bool", "int", "float", "list_int"]
+FieldKind = Literal["bool", "int", "float", "list_int", "str"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +126,9 @@ def validate_detector_section(schema: DetectorSchema, section: dict[str, Any]) -
                 min_value=float(f.min_value) if f.min_value is not None else None,
                 max_value=float(f.max_value) if f.max_value is not None else None,
             )
+        elif f.kind == "str":
+            if not isinstance(section[f.name], str):
+                raise ValueError(f"{path} must be str")
         elif f.kind == "list_int":
             section[f.name] = coerce_list_int(section[f.name], path)
         else:

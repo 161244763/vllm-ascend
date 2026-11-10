@@ -52,6 +52,8 @@ class AfterSampleCpuSnapshot:
     req_ids: list[str]
     has_nonempty_sampled: bool
     skip_req_ids: set[str] | None
+    detector_epoch: int | None = None
+    request_states: dict[str, Any] | None = None
 
 
 class DetectorManager:
@@ -99,7 +101,7 @@ class DetectorManager:
         """Resolve a detector for alert routing (``RuntimeGuardProcessor._handle_alert`` only)."""
         return self._registry.get(incident_type)
 
-    def clear_finished(self, req_id: str) -> None:
+    def clear_finished(self, req_id: str, *, expected_state=None) -> None:
         """Drop per-request detector state when a request finishes.
 
         Shared fields (IO / waves) are cleared by
@@ -108,15 +110,27 @@ class DetectorManager:
         Prefer Store.clear from ``RuntimeGuardProcessor._reap_finished_requests``.
         """
         state = RequestGuardStore.get().get_state(req_id)
-        if state is not None:
+        if state is not None and (expected_state is None or state is expected_state):
             state.detection_stopped = False
         for det in self._registry:
-            det.clear_finished(req_id)
+            if det is self._token_repeat_det:
+                det.clear_finished(req_id, expected_state=expected_state)
+            else:
+                det.clear_finished(req_id)
 
     def apply_runtime_config(self) -> None:
-        """All-rank hook after runtime_config JSON sync — refresh detector deps."""
+        """All-rank hook after runtime_config JSON sync — refresh detector deps.
+
+        ``ConfigBackedDetector`` calls :meth:`AnomalyDetector.on_disabled` when
+        a section flips ``enabled`` True→False (private maps only; not Store).
+        """
         for det in self._registry:
             det.refresh_from_config()
+
+    def disable_all(self) -> None:
+        """Clear every detector's private maps (all-detectors-off soft purge)."""
+        for det in self._registry:
+            det.on_disabled()
 
     # ---- detection gating -------------------------------------------------
 
@@ -210,6 +224,8 @@ class DetectorManager:
 
         snap = AfterSampleCpuSnapshot(
             req_ids=list(resolved_ids),
+            detector_epoch=self._token_repeat_det.epoch,
+            request_states={rid: RequestGuardStore.get().get_state(rid) for rid in resolved_ids},
             has_nonempty_sampled=has_nonempty_sampled_row(resolved_ids, sampled_token_ids),
             skip_req_ids=skip,
         )
@@ -227,7 +243,12 @@ class DetectorManager:
             sampled_token_ids=None,
             req_ids=snap.req_ids,
             skip_req_ids=skip,
+            expected_epoch=snap.detector_epoch,
+            expected_states=snap.request_states,
         )
+
+    def finish_requests(self, req_ids: list[str]) -> list[Incident]:
+        return self._token_repeat_det.finish_requests(req_ids)
 
     def _after_sample_setup(self, req_ids: list[str] | None) -> tuple[list[str], bool, bool, set[str]]:
         resolved_ids = resolve_batch_req_ids(self._runner, req_ids)

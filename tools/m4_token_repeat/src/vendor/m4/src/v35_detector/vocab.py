@@ -18,6 +18,7 @@ Tokenizer tables are supplied separately as NPZ files; this source tree does not
 then RepDetector('/path/to/my_model.npz', config, think_end=<'</think>' id, or None in chat mode>).
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -56,7 +57,16 @@ def build(tokenizer_json):
     tk = Tokenizer.from_file(tokenizer_json)
     V = tk.get_vocab_size()
     with open(tokenizer_json, encoding='utf-8') as source:
-        special = {a['id'] for a in json.load(source).get('added_tokens', []) if a.get('special')}
+        definition = json.load(source)
+        special = {a['id'] for a in definition.get('added_tokens', []) if a.get('special')}
+    def has_byte_level(node):
+        if isinstance(node, dict):
+            return node.get('type') == 'ByteLevel' or any(has_byte_level(v) for v in node.values())
+        if isinstance(node, list):
+            return any(has_byte_level(v) for v in node)
+        return False
+    if definition.get('model', {}).get('type') != 'BPE' or not has_byte_level(definition.get('decoder')):
+        raise ValueError('M4 table builder supports ByteLevel BPE tokenizer.json only')
     bd = _byte_decoder()
     norm = np.full(V, SEP, np.int32)
     letter = np.zeros(V, bool)
@@ -114,6 +124,8 @@ def main():
     ap.add_argument('--out', required=True, help='output .npz')
     a = ap.parse_args()
     t = build(a.tokenizer)
+    with open(a.tokenizer, "rb") as source:
+        t["tokenizer_sha256"] = np.array(hashlib.sha256(source.read()).hexdigest())
     np.savez_compressed(a.out, **t)
     n = t['norm']
     print(f'{a.out}: vocab {n.size}, separators {int((n == SEP).sum())}, distinct normalised ids {len(np.unique(n[n > 0]))}, '

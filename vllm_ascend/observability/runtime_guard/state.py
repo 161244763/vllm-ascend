@@ -435,7 +435,7 @@ class RequestGuardStore:
                     self._by_req[rid] = state
                 state.cpu_jobs += 1
 
-    def finish_cpu_jobs(self, req_ids: Iterable[str] | None) -> None:
+    def finish_cpu_jobs(self, req_ids: Iterable[str] | None, *, expected_states=None) -> None:
         if not req_ids:
             return
         with self._lock:
@@ -443,6 +443,8 @@ class RequestGuardStore:
                 if not raw:
                     continue
                 state = self._by_req.get(str(raw))
+                if expected_states is not None and state is not expected_states.get(str(raw)):
+                    continue
                 if state is not None and state.cpu_jobs > 0:
                     state.cpu_jobs -= 1
 
@@ -552,14 +554,16 @@ class RequestGuardStore:
         if not req_id:
             return None
         rid = str(req_id)
-        if detectors is not None:
-            detectors.clear_finished(rid)
         with self._lock:
             state = self._by_req.pop(rid, None)
             if state is not None:
                 self._finished.discard(rid)
                 self._note_reaped_locked(rid)
             hooks = list(self._on_clear)
+        # Remove shared identity before releasing private detector state. A late
+        # CPU snapshot must not recreate private state in the removal gap.
+        if detectors is not None:
+            detectors.clear_finished(rid, expected_state=state)
         for hook in hooks:
             try:
                 hook(rid)
@@ -580,6 +584,20 @@ class RequestGuardStore:
         for req_id in req_ids:
             if req_id:
                 self.clear(str(req_id), detectors=detectors)
+
+    def reset_detect_io_keep_prompts(self) -> list[str]:
+        """Clear cumulative outputs / stop flags; keep Store rows and prompts.
+
+        Used when hot-reload turns all detectors off. Mid-flight re-enable can
+        still report the cached prompt; new samples append as a suffix. Finished
+        rows stay so the next sync wave can reap them.
+        """
+        with self._lock:
+            ids = list(self._by_req)
+            for state in self._by_req.values():
+                state.output_token_ids.clear()
+                state.detection_stopped = False
+            return ids
 
     # ---- IO helpers -------------------------------------------------------
 
