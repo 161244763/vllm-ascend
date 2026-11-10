@@ -1,0 +1,2 @@
+include m4_native.cpp position_queue.h pyproject.toml
+recursive-include vendor/m4/src/v35_detector *.py *.json *.npz

@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.so
+*.pyd
+*.egg-info/
+build*/
+dist/
+native-evidence/
+soak-*/
+replay-*/
+.coverage*
+htmlcov/
